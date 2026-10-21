@@ -63,6 +63,11 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             import_audio
         ),
+        cmd!(noundo "file.import_aaf", "AAF...", ["File", "Import"], None, "{path, media_dir?} — imports audio timeline tracks and WAV references exposed by the AAF reader; no PTX decoding", always, |e, p| {
+            let path = str_param(p, "path").ok_or_else(|| bad("file.import_aaf", "`path` required"))?;
+            let media_dir = str_param(p, "media_dir").map(std::path::Path::new);
+            crate::aaf::import(e, std::path::Path::new(path), media_dir).map(|report| report.json())
+        }),
         cmd!("file.import_midi", "MIDI...", ["File", "Import"], Some("Cmd+Alt+I"), "{path, at?}", always, |e, p| {
             let path = str_param(p, "path").ok_or_else(|| bad("file.import_midi", "`path` required"))?.to_string();
             let at = position_param(e, "file.import_midi", p, "at")?.unwrap_or(0);

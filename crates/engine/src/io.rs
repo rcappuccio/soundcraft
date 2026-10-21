@@ -60,6 +60,46 @@ pub fn file_found(path: impl AsRef<Path>) -> bool {
     crate::file_access::check_read(path).is_ok() && path.is_file()
 }
 
+/// `path`'s length, after the same checks [`read_file`] applies (inside the read root, a regular
+/// file), without reading its contents. Lets a caller refuse an oversized file before loading it.
+pub fn file_len(path: impl AsRef<Path>) -> Result<u64> {
+    let path = path.as_ref();
+    crate::file_access::check_read(path).map_err(EngineError::Io)?;
+    let metadata = std::fs::metadata(path).map_err(|err| EngineError::Io(format!("{}: {err}", path.display())))?;
+    if !metadata.is_file() {
+        return Err(EngineError::Io(format!("{}: not a regular file", path.display())));
+    }
+    Ok(metadata.len())
+}
+
+/// A confined, regular file opened for random-access reading rather than decoded into memory all
+/// at once like [`read_file`]. For readers that need to seek (the AAF compound-file preflight
+/// walks a file sector by sector instead of trusting its declared structure blindly). Already
+/// past the read-root and regular-file checks; `open` also returns the file's length so a caller
+/// can refuse an oversized file before doing further work with it.
+pub struct ConfinedHandle(std::fs::File);
+
+impl ConfinedHandle {
+    pub fn open(path: impl AsRef<Path>) -> Result<(ConfinedHandle, u64)> {
+        let path = path.as_ref();
+        let len = file_len(path)?;
+        let file = std::fs::File::open(path).map_err(|err| EngineError::Io(format!("{}: {err}", path.display())))?;
+        Ok((ConfinedHandle(file), len))
+    }
+}
+
+impl std::io::Read for ConfinedHandle {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl std::io::Seek for ConfinedHandle {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
+    }
+}
+
 /// The file a path stored in the session file `session` refers to, or why it is not opened.
 ///
 /// Every path a session names (audio sources, movies) goes through here before it reaches the
