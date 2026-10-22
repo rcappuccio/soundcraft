@@ -220,11 +220,12 @@ fn open_pending_session(app: &mut SoundApp) {
     };
 }
 
+/// Shown above the folder field and as the title of the native folder picker.
+pub const AAF_FOLDER_HELP: &str =
+    "Select the folder containing all the files exported from Pro Tools: the .AAF file, the .TXT report and the .WAV files.";
+
 /// A path prompt for any command whose parameters start with a required `path` or `dir` (plus
 /// Print Score, whose path is optional), with a default file name from the command.
-/// Shown above the folder field and as the title of the native folder picker.
-pub const AAF_FOLDER_HELP: &str = "Select the folder containing all the files exported from Pro Tools: the .AAF file, the .TXT report and the .WAV files.";
-
 pub fn takes_path(id: &str) -> bool {
     path_key(id).is_some()
 }
