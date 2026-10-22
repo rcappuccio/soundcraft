@@ -45,6 +45,7 @@ const MAX_WARNINGS: usize = 200;
 const MAX_SESSION_REPORT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_SESSION_REPORT_LINES: usize = 50_000;
 const MAX_SESSION_REPORT_NOTES: usize = 200;
+const MAX_SESSION_REPORT_PLUGINS: usize = 2_000;
 /// Case-insensitive substrings that mark a session-report line as migration-relevant. Matching
 /// is deliberately shallow (no field parsing, no structured extraction): a line is either kept
 /// verbatim as a note or it isn't, so this can never misreport what a proprietary binary contains.
@@ -514,16 +515,7 @@ pub fn import(engine: &mut Engine, input: &Path, media_dir: Option<&Path>) -> Re
 /// manually. The report is treated purely as text; nothing here parses or assumes a specific
 /// proprietary layout.
 pub fn session_report_notes(path: &Path) -> Result<Vec<String>> {
-    let len = crate::io::file_len(path)?;
-    if len > MAX_SESSION_REPORT_BYTES {
-        return Err(EngineError::Unsupported(format!(
-            "{}: session reports larger than {} MiB are not accepted",
-            path.display(),
-            MAX_SESSION_REPORT_BYTES / (1024 * 1024)
-        )));
-    }
-    let bytes = crate::io::read_file(path)?;
-    let text = String::from_utf8_lossy(&bytes);
+    let text = read_session_report(path)?;
     let mut notes = Vec::new();
     for line in text.lines().take(MAX_SESSION_REPORT_LINES) {
         let trimmed = line.trim();
@@ -540,6 +532,81 @@ pub fn session_report_notes(path: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(notes)
+}
+
+fn read_session_report(path: &Path) -> Result<String> {
+    let len = crate::io::file_len(path)?;
+    if len > MAX_SESSION_REPORT_BYTES {
+        return Err(EngineError::Unsupported(format!(
+            "{}: session reports larger than {} MiB are not accepted",
+            path.display(),
+            MAX_SESSION_REPORT_BYTES / (1024 * 1024)
+        )));
+    }
+    let bytes = crate::io::read_file(path)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// One plug-in a Pro Tools session report lists on a track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportPlugin {
+    pub track: String,
+    pub name: String,
+}
+
+/// The plug-ins a Pro Tools session report lists per track, in the order they appear.
+///
+/// Assumptions (from sample exports, to be verified against more of them): a track block starts
+/// with `TRACK NAME:<tab><name>`; its `PLUG-INS:` line carries the plug-in names separated by
+/// tabs (the line is often empty); an indented line right after it continues the list; the
+/// order is the insert order; the report does not say pre- or post-fader. A trailing channel
+/// suffix such as `(mono)` or `(stereo)` is not part of the name. Plug-in settings are not in
+/// the report, so only names come out.
+pub fn session_report_plugins(path: &Path) -> Result<Vec<ReportPlugin>> {
+    let text = read_session_report(path)?;
+    Ok(parse_report_plugins(&text))
+}
+
+fn parse_report_plugins(text: &str) -> Vec<ReportPlugin> {
+    let mut out: Vec<ReportPlugin> = Vec::new();
+    let mut track: Option<String> = None;
+    let mut in_plugins = false;
+    for line in text.lines().take(MAX_SESSION_REPORT_LINES) {
+        let continuation = in_plugins && line.starts_with([' ', '\t']) && !line.trim().is_empty() && !line.contains(':');
+        let (key, value) = match line.split_once(':') {
+            Some((k, v)) if !continuation => (k.trim().to_ascii_uppercase(), v),
+            _ if continuation => ("PLUG-INS".to_string(), line),
+            _ => (String::new(), ""),
+        };
+        in_plugins = key == "PLUG-INS";
+        match key.as_str() {
+            "TRACK NAME" => track = Some(value.trim().to_string()).filter(|t| !t.is_empty()),
+            "PLUG-INS" => {
+                let Some(track) = &track else { continue };
+                for raw in value.split('\t') {
+                    let name = strip_channel_suffix(raw.trim());
+                    if name.is_empty() {
+                        continue;
+                    }
+                    if out.len() >= MAX_SESSION_REPORT_PLUGINS {
+                        return out;
+                    }
+                    out.push(ReportPlugin { track: label(track), name: label(name) });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// `Vocal Rider (stereo)` → `Vocal Rider`; other parenthesised text is part of the name.
+fn strip_channel_suffix(name: &str) -> &str {
+    let Some(open) = name.rfind('(').filter(|_| name.ends_with(')')) else { return name };
+    let inner = name.get(open + 1..name.len().saturating_sub(1)).unwrap_or_default().trim().to_ascii_lowercase();
+    let known = matches!(inner.as_str(), "mono" | "stereo" | "lcr" | "quad" | "lcrs" | "dual mono" | "mono/stereo" | "multi-mono");
+    let layout = !inner.is_empty() && inner.chars().all(|c| c.is_ascii_digit() || c == '.');
+    if known || layout { name.get(..open).unwrap_or(name).trim_end() } else { name }
 }
 
 fn read_aaf(input: &Path) -> Result<AafModel> {
@@ -2821,6 +2888,48 @@ mod tests {
         assert_eq!(notes.last().map(String::as_str), Some("further session-report notes were suppressed"));
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn report_plugins_follow_the_track_blocks_and_strip_channel_suffixes() {
+        let text = "SESSION NAME:\tDemo\r\n\r\nTRACK NAME:\tLead Vox\r\nCOMMENTS:\t\r\nPLUG-INS: \tVocal Rider (stereo)\r\n\r\n\
+            TRACK NAME:\tDrums\r\nPLUG-INS: \tEQ3 7-Band (mono)\t  Compressor  (stereo) \tAIR Reverb (5.1)\r\n\r\n\
+            TRACK NAME:\tBass\nPLUG-INS: \t\n\nTRACK NAME:\tKeys\nPLUG-INS: \tDelay (long)\n\t\tChorus (mono)\nSTATE: \n";
+        let got: Vec<(String, String)> = parse_report_plugins(text).into_iter().map(|p| (p.track, p.name)).collect();
+        let want = [
+            ("Lead Vox", "Vocal Rider"),
+            ("Drums", "EQ3 7-Band"),
+            ("Drums", "Compressor"),
+            ("Drums", "AIR Reverb"),
+            ("Keys", "Delay (long)"),
+            ("Keys", "Chorus"),
+        ];
+        assert_eq!(got, want.map(|(t, n)| (t.to_string(), n.to_string())));
+    }
+
+    #[test]
+    fn report_plugins_ignore_lines_without_a_track_and_empty_reports() {
+        assert!(parse_report_plugins("").is_empty());
+        assert!(parse_report_plugins("PLUG-INS: \tOrphan\n").is_empty());
+        assert!(parse_report_plugins("TRACK NAME:\t\nPLUG-INS:\tX\n").is_empty());
+    }
+
+    #[test]
+    fn report_plugins_are_bounded() {
+        let text = format!("TRACK NAME:\tT\nPLUG-INS:\t{}\n", vec!["P"; MAX_SESSION_REPORT_PLUGINS + 50].join("\t"));
+        assert_eq!(parse_report_plugins(&text).len(), MAX_SESSION_REPORT_PLUGINS);
+    }
+
+    #[test]
+    fn report_plugins_reads_the_file_and_reports_a_missing_one() {
+        let dir = std::env::temp_dir().join(format!("sc-report-plugins-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("report.txt");
+        std::fs::write(&path, "TRACK NAME:\tA\nPLUG-INS:\tFoo (mono)\n").unwrap();
+        let plugins = session_report_plugins(&path).unwrap();
+        assert_eq!(plugins, vec![ReportPlugin { track: "A".into(), name: "Foo".into() }]);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(session_report_plugins(&dir.join("missing.txt")).is_err());
     }
 
     #[test]

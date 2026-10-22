@@ -319,6 +319,15 @@ fn optional_slot(p: &Value, cmd: &str, max: usize) -> Result<Option<usize>> {
     }
 }
 
+/// A fresh insert of `info` with every parameter at its default.
+pub(super) fn default_insert(info: &soundcraft_dsp::PluginInfo) -> Insert {
+    let mut ins = Insert::new(info.id);
+    for pi in info.params {
+        ins.params.insert(pi.id.to_string(), pi.default);
+    }
+    ins
+}
+
 fn insert(e: &mut Engine, p: &Value) -> Result<Value> {
     let plugin = str_param(p, "plugin").ok_or_else(|| bad("mix.insert", "`plugin` required"))?.to_string();
     let info = super::clap::plugin_info(&plugin).ok_or_else(|| bad("mix.insert", format!("unknown plugin `{plugin}`")))?;
@@ -328,10 +337,7 @@ fn insert(e: &mut Engine, p: &Value) -> Result<Value> {
     let tr = s.track_mut(t).ok_or_else(|| bad("mix.insert", "no track"))?;
     let slot =
         explicit.or_else(|| tr.mixer.inserts.iter().position(Option::is_none)).ok_or_else(|| bad("mix.insert", "all insert slots are in use"))?;
-    let mut ins = Insert::new(info.id);
-    for pi in info.params {
-        ins.params.insert(pi.id.to_string(), pi.default);
-    }
+    let mut ins = default_insert(info);
     if let Some(obj) = p.get("params").and_then(Value::as_object) {
         for (k, v) in obj {
             let Some(pi) = info.params.iter().find(|x| x.id == k) else {

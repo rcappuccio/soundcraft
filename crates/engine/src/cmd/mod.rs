@@ -23,6 +23,7 @@ mod midi;
 mod mix;
 mod more_util;
 mod options;
+mod plugin_map;
 mod plugin_state;
 mod query;
 pub(crate) mod sampler;
@@ -114,6 +115,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(clip::specs());
         v.extend(event::specs());
         v.extend(mix::specs());
+        v.extend(plugin_map::specs());
         v.extend(options::specs());
         v.extend(transport::specs());
         v.extend(tab::specs());

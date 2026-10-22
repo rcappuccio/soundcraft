@@ -362,6 +362,35 @@ fn companion_file(e: &mut Engine, result: &mut Value, dir: &std::path::Path, ext
     }
 }
 
+/// Adds `plugins: [{track, name, matched}]` from the report's `PLUG-INS` lines. A track is
+/// matched to an imported one by name (case-insensitive); the rest are warned about.
+fn report_plugins(e: &mut Engine, result: &mut Value, report: &str) {
+    let plugins = match crate::aaf::session_report_plugins(std::path::Path::new(report)) {
+        Ok(plugins) => plugins,
+        Err(err) => return import_warning(e, result, format!("the plug-ins in `{report}` could not be read: {err}")),
+    };
+    let names: std::collections::HashSet<String> = e.session().tracks.iter().map(|t| t.name.to_lowercase()).collect();
+    let mut unmatched: Vec<&str> = Vec::new();
+    for plugin in &plugins {
+        if !names.contains(&plugin.track.to_lowercase()) && !unmatched.contains(&plugin.track.as_str()) {
+            unmatched.push(&plugin.track);
+        }
+    }
+    let list: Vec<Value> =
+        plugins.iter().map(|p| json!({"track": p.track, "name": p.name, "matched": names.contains(&p.track.to_lowercase())})).collect();
+    if !unmatched.is_empty() {
+        let shown = unmatched.iter().take(10).copied().collect::<Vec<_>>().join(", ");
+        import_warning(
+            e,
+            result,
+            format!("plug-ins listed for tracks that were not imported ({shown}{})", if unmatched.len() > 10 { ", …" } else { "" }),
+        );
+    }
+    if !list.is_empty() {
+        result["plugins"] = json!(list);
+    }
+}
+
 fn import_session(e: &mut Engine, p: &Value) -> Result<Value> {
     let path = str_param(p, "path").ok_or_else(|| bad("file.import_aaf", "`path` required"))?;
     let media_dir = str_param(p, "media_dir").map(std::path::Path::new);
@@ -394,7 +423,10 @@ fn import_session(e: &mut Engine, p: &Value) -> Result<Value> {
     };
     if let Some(session_report) = session_report {
         match crate::aaf::session_report_notes(std::path::Path::new(&session_report)) {
-            Ok(notes) => result["notes"] = json!(notes),
+            Ok(notes) => {
+                result["notes"] = json!(notes);
+                report_plugins(e, &mut result, &session_report);
+            }
             Err(err) if explicit_report.is_some() => return Err(bad("file.import_aaf", format!("session_report {session_report}: {err}"))),
             Err(err) => import_warning(e, &mut result, format!("the session report `{session_report}` could not be read: {err}")),
         }

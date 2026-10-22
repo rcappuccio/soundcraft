@@ -10,24 +10,178 @@ use soundcraft_time::Samples;
 
 #[derive(Debug, Clone)]
 pub enum Dialog {
-    NewTracks { count: u32, format: String, kind: String, timebase: String, name: String },
-    NewSession { name: String, sample_rate: u32, demo: bool },
-    Bounce { path: String, format: String, bit_depth: String, normalize: bool },
-    RenameTrack { id: TrackId, name: String },
-    RenameClip { id: ClipId, name: String },
-    RenameMarker { id: soundcraft_model::MarkerId, name: String },
-    ClearClips { clips: Vec<ClipId>, sources: Vec<SourceId>, message: String },
-    PathPrompt { cmd: String, title: String, path: String, key: String },
-    Number { cmd: String, title: String, key: String, value: f64, suffix: String },
-    TempoChange { at: Samples, bpm: f64 }, // from double-clicking the tempo ruler
+    NewTracks {
+        count: u32,
+        format: String,
+        kind: String,
+        timebase: String,
+        name: String,
+    },
+    NewSession {
+        name: String,
+        sample_rate: u32,
+        demo: bool,
+    },
+    Bounce {
+        path: String,
+        format: String,
+        bit_depth: String,
+        normalize: bool,
+    },
+    RenameTrack {
+        id: TrackId,
+        name: String,
+    },
+    RenameClip {
+        id: ClipId,
+        name: String,
+    },
+    RenameMarker {
+        id: soundcraft_model::MarkerId,
+        name: String,
+    },
+    ClearClips {
+        clips: Vec<ClipId>,
+        sources: Vec<SourceId>,
+        message: String,
+    },
+    PathPrompt {
+        cmd: String,
+        title: String,
+        path: String,
+        key: String,
+    },
+    Number {
+        cmd: String,
+        title: String,
+        key: String,
+        value: f64,
+        suffix: String,
+    },
+    TempoChange {
+        at: Samples,
+        bpm: f64,
+    }, // from double-clicking the tempo ruler
     Spot(crate::spot::Spot),
-    Fades { shape: String },
-    StripSilence { threshold: f64, min_ms: f64, pre_ms: f64, post_ms: f64 },
+    Fades {
+        shape: String,
+    },
+    StripSilence {
+        threshold: f64,
+        min_ms: f64,
+        pre_ms: f64,
+        post_ms: f64,
+    },
     // `id: None` creates (Track › Group…); `id: Some` modifies that group (Groups list › Modify Group…).
-    Group { id: Option<GroupId>, name: String, edit: bool, mix: bool, members: Vec<(u64, String, bool)> },
-    Session { frame_rate: String, bit_depth: String },
-    ScoreSetup { title: String, composer: String, bars_per_system: u32, show_track_names: bool },
-    SaveChanges { then: (String, Value) },
+    Group {
+        id: Option<GroupId>,
+        name: String,
+        edit: bool,
+        mix: bool,
+        members: Vec<(u64, String, bool)>,
+    },
+    Session {
+        frame_rate: String,
+        bit_depth: String,
+    },
+    ScoreSetup {
+        title: String,
+        composer: String,
+        bars_per_system: u32,
+        show_track_names: bool,
+    },
+    SaveChanges {
+        then: (String, Value),
+    },
+    /// After Import Session: pick a VST3 / CLAP plug-in for each AAX plug-in the report listed.
+    PluginMap {
+        rows: Vec<PluginMapRow>,
+        options: Vec<PluginOption>,
+    },
+}
+
+/// One AAX plug-in (by name), the tracks that used it, and the chosen replacement (an index into the options).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginMapRow {
+    pub aax: String,
+    pub tracks: Vec<String>,
+    pub choice: Option<usize>,
+}
+
+/// A VST3 or CLAP plug-in the user can pick.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginOption {
+    pub id: String,
+    pub label: String,
+    name: String,
+}
+
+/// The plug-ins `engine.vst3_plugins` / `engine.clap_plugins` listed, as combo-box options.
+pub fn plugin_options(vst3: &Value, clap: &Value) -> Vec<PluginOption> {
+    let mut out = Vec::new();
+    for (list, format) in [(vst3, "VST3"), (clap, "CLAP")] {
+        for p in list.as_array().into_iter().flatten() {
+            let (Some(id), Some(name)) = (p["id"].as_str(), p["name"].as_str()) else { continue };
+            let vendor = p["vendor"].as_str().filter(|v| !v.is_empty());
+            let label = match vendor {
+                Some(v) => format!("{name} — {v} ({format})"),
+                None => format!("{name} ({format})"),
+            };
+            out.push(PluginOption { id: id.into(), label, name: name.into() });
+        }
+    }
+    out.sort_by_key(|o| o.label.to_lowercase());
+    out
+}
+
+fn simple_name(name: &str) -> String {
+    name.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+/// The option whose name equals the AAX name (ignoring case and punctuation), else the one that
+/// contains it or is contained by it; `None` when nothing is close. Best-effort, the user decides.
+fn suggest(aax: &str, options: &[PluginOption]) -> Option<usize> {
+    let want = simple_name(aax);
+    if want.is_empty() {
+        return None;
+    }
+    let exact = options.iter().position(|o| simple_name(&o.name) == want);
+    exact.or_else(|| {
+        options.iter().position(|o| {
+            let have = simple_name(&o.name);
+            have.len() >= 4 && want.len() >= 4 && (have.contains(&want) || want.contains(&have))
+        })
+    })
+}
+
+/// The mapping dialog for the `plugins` an Import Session result lists (`[{track, name, matched}]`);
+/// one row per unique AAX name, in report order. `None` when no plug-in sits on an imported track.
+pub fn plugin_map_dialog(plugins: &Value, options: Vec<PluginOption>) -> Option<Dialog> {
+    let mut rows: Vec<PluginMapRow> = Vec::new();
+    for p in plugins.as_array().into_iter().flatten() {
+        let (Some(track), Some(name)) = (p["track"].as_str(), p["name"].as_str()) else { continue };
+        if p["matched"].as_bool() == Some(false) {
+            continue;
+        }
+        match rows.iter_mut().find(|r| r.aax.eq_ignore_ascii_case(name)) {
+            Some(row) => {
+                if !row.tracks.iter().any(|t| t == track) {
+                    row.tracks.push(track.into());
+                }
+            }
+            None => rows.push(PluginMapRow { aax: name.into(), tracks: vec![track.into()], choice: suggest(name, &options) }),
+        }
+    }
+    (!rows.is_empty()).then_some(Dialog::PluginMap { rows, options })
+}
+
+/// What OK runs: `file.apply_plugin_map` with the chosen replacements (rows left on None are skipped).
+fn plugin_map_action(rows: &[PluginMapRow], options: &[PluginOption]) -> (String, Value) {
+    let map: Vec<Value> = rows
+        .iter()
+        .map(|r| json!({"aax": r.aax, "plugin": r.choice.and_then(|i| options.get(i)).map(|o| o.id.as_str()), "tracks": r.tracks}))
+        .collect();
+    ("file.apply_plugin_map".into(), json!({"map": map}))
 }
 
 #[derive(Default)]
@@ -60,6 +214,7 @@ impl Dialogs {
             Dialog::Session { .. } => "session",
             Dialog::ScoreSetup { .. } => "score_setup",
             Dialog::SaveChanges { .. } => "save_changes",
+            Dialog::PluginMap { .. } => "plugin_map",
         })
     }
 
@@ -224,6 +379,9 @@ fn open_pending_session(app: &mut SoundApp) {
 pub const AAF_FOLDER_HELP: &str =
     "Select the folder containing all the files exported from Pro Tools: the .AAF file, the .MID file, the .TXT report and the .WAV files.";
 
+/// Shown above the plug-in table after Import Session.
+pub const PLUGIN_MAP_HELP: &str = "These AAX plug-ins were used in the Pro Tools session. Choose a VST3 or CLAP plug-in to put in their place on the same tracks; only the plug-in names carry over, so the new plug-ins start with their default settings.";
+
 /// A path prompt for any command whose parameters start with a required `path` or `dir` (plus
 /// Print Score, whose path is optional), with a default file name from the command.
 pub fn takes_path(id: &str) -> bool {
@@ -349,6 +507,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         Dialog::ScoreSetup { .. } => "Score Setup",
         Dialog::SaveChanges { then } if then.0 == "session.revert" => "Revert to Saved",
         Dialog::SaveChanges { .. } => "Unsaved Changes",
+        Dialog::PluginMap { .. } => "Replace AAX Plug-ins",
     }
     .to_string();
     let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
@@ -643,6 +802,42 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                         ));
                     }
                 }
+                Dialog::PluginMap { rows, options } => {
+                    ui.set_max_width(560.0);
+                    ui.label(crate::i18n::t(PLUGIN_MAP_HELP));
+                    if options.is_empty() {
+                        ui.label(crate::i18n::t("No VST3 or CLAP plug-ins were found."));
+                    }
+                    egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                        egui::Grid::new("plugin_map").num_columns(2).striped(true).spacing(vec2(24.0, 6.0)).show(ui, |ui| {
+                            ui.label(egui::RichText::new(crate::i18n::t("AAX (origin)")).strong());
+                            ui.label(egui::RichText::new(crate::i18n::t("VST3 / CLAP (destination)")).strong());
+                            ui.end_row();
+                            for (n, row) in rows.iter_mut().enumerate() {
+                                ui.label(&row.aax).on_hover_text(row.tracks.join(", "));
+                                let shown =
+                                    row.choice.and_then(|i| options.get(i)).map_or_else(|| crate::i18n::t("None").to_string(), |o| o.label.clone());
+                                egui::ComboBox::from_id_salt(("plugin_map_row", n)).selected_text(shown).width(320.0).show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut row.choice, None, crate::i18n::t("None"));
+                                    for (i, o) in options.iter().enumerate() {
+                                        ui.selectable_value(&mut row.choice, Some(i), o.label.as_str());
+                                    }
+                                });
+                                ui.end_row();
+                            }
+                        });
+                    });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button(crate::i18n::t("Skip")).clicked() {
+                            ui.ctx().memory_mut(|m| m.data.insert_temp(egui::Id::new("dlg_cancel"), true));
+                        }
+                        let b = egui::Button::new(egui::RichText::new(crate::i18n::t("OK")).strong()).fill(Tokens::current().accent);
+                        if ui.add(b).clicked() || enter {
+                            action = Some(plugin_map_action(rows, options));
+                        }
+                    });
+                }
                 Dialog::SaveChanges { then } => {
                     let name = &app.engine.session().name;
                     let revert = then.0 == "session.revert";
@@ -703,6 +898,20 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                 if !warnings.is_empty() {
                     app.ui.status = warnings.join("\n");
                 }
+                let options = plugin_options(
+                    &app.engine.execute("engine.vst3_plugins", &json!({})).unwrap_or(Value::Null),
+                    &app.engine.execute("engine.clap_plugins", &json!({})).unwrap_or(Value::Null),
+                );
+                if let Some(dialog) = plugin_map_dialog(&v["plugins"], options) {
+                    app.dialogs.open = Some(dialog);
+                }
+            }
+            Ok(v) if cmd == "file.apply_plugin_map" => {
+                let count = |key: &str| v[key].as_array().map_or(0, Vec::len);
+                app.ui.status = crate::i18n::fmt(
+                    crate::i18n::t("Inserted {done} plug-in(s); {failed} could not be placed."),
+                    &[("done", &count("inserted").to_string()), ("failed", &count("failed").to_string())],
+                );
             }
             Ok(_) => {}
             Err(e) => app.ui.status = e,
@@ -843,6 +1052,50 @@ mod tests {
         assert!(!takes_path("edit.copy"));
         assert!(d.open_for_command(&e, "file.score_setup"));
         assert!(matches!(d.open, Some(Dialog::ScoreSetup { bars_per_system: 4, .. })));
+    }
+
+    fn options() -> Vec<PluginOption> {
+        plugin_options(
+            &json!([{"id": "vst3:aa", "name": "Pro-Q 3", "vendor": "FabFilter"}, {"id": "vst3:bb", "name": "Vocal Rider"}]),
+            &json!([{"id": "clap:cc", "name": "Surge XT", "vendor": "Surge"}, {"name": "no id"}]),
+        )
+    }
+
+    #[test]
+    fn plugin_options_label_name_vendor_and_format() {
+        let labels: Vec<String> = options().into_iter().map(|o| o.label).collect();
+        assert_eq!(labels, ["Pro-Q 3 — FabFilter (VST3)", "Surge XT — Surge (CLAP)", "Vocal Rider (VST3)"]);
+    }
+
+    #[test]
+    fn plugin_map_has_one_row_per_aax_name_and_preselects_a_name_match() {
+        let plugins = json!([
+            {"track": "Vox", "name": "Vocal Rider", "matched": true},
+            {"track": "Bus", "name": "vocal rider", "matched": true},
+            {"track": "Vox", "name": "AIR Reverb", "matched": true},
+            {"track": "Gone", "name": "Lost", "matched": false},
+        ]);
+        let opts = options();
+        let Some(Dialog::PluginMap { rows, .. }) = plugin_map_dialog(&plugins, opts.clone()) else { panic!("no dialog") };
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].tracks, ["Vox", "Bus"]);
+        assert_eq!(rows[0].choice.map(|i| opts[i].id.as_str()), Some("vst3:bb"));
+        assert_eq!(rows[1].choice, None);
+        assert!(plugin_map_dialog(&json!([]), opts.clone()).is_none());
+        assert!(plugin_map_dialog(&Value::Null, opts).is_none());
+    }
+
+    #[test]
+    fn plugin_map_action_is_a_real_command_and_skips_unchosen_rows() {
+        let opts = options();
+        let rows = vec![
+            PluginMapRow { aax: "A".into(), tracks: vec!["Kick".into()], choice: Some(0) },
+            PluginMapRow { aax: "B".into(), tracks: vec!["Kick".into()], choice: None },
+        ];
+        let (cmd, params) = plugin_map_action(&rows, &opts);
+        assert!(soundcraft_engine::command_specs().iter().any(|c| c.id == cmd), "{cmd} is not a command");
+        assert_eq!(params["map"][0]["plugin"], "vst3:aa");
+        assert!(params["map"][1]["plugin"].is_null());
     }
 
     #[test]

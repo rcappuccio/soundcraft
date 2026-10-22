@@ -1126,3 +1126,11 @@ automation	touch	touch
 automation	touch/latch	touch/latch
 automation	trim	trim
 automation	write	write
+	These AAX plug-ins were used in the Pro Tools session. Choose a VST3 or CLAP plug-in to put in their place on the same tracks; only the plug-in names carry over, so the new plug-ins start with their default settings.	Questi plug-in AAX erano usati nella sessione Pro Tools. Scegli un plug-in VST3 o CLAP da mettere al loro posto sulle stesse tracce; si trasferiscono solo i nomi dei plug-in, quindi i nuovi plug-in partono con le impostazioni predefinite.
+	AAX (origin)	AAX (origine)
+	VST3 / CLAP (destination)	VST3 / CLAP (destinazione)
+	No VST3 or CLAP plug-ins were found.	Non è stato trovato nessun plug-in VST3 o CLAP.
+	Skip	Salta
+	Replace AAX Plug-ins	Sostituisci i plug-in AAX
+	Inserted {done} plug-in(s); {failed} could not be placed.	Inseriti {done} plug-in; {failed} non è stato possibile inserirli.
+	Apply Plug-in Map	Applica mappa plug-in
