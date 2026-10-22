@@ -369,15 +369,21 @@ fn report_plugins(e: &mut Engine, result: &mut Value, report: &str) {
         Ok(plugins) => plugins,
         Err(err) => return import_warning(e, result, format!("the plug-ins in `{report}` could not be read: {err}")),
     };
-    let names: std::collections::HashSet<String> = e.session().tracks.iter().map(|t| t.name.to_lowercase()).collect();
+    // The report says `Voice (Stereo)` where the AAF names the track `Voice`.
+    let tracks: Vec<String> = e.session().tracks.iter().map(|t| t.name.clone()).collect();
+    let resolve = |report_name: &str| -> Option<String> {
+        let find = |wanted: &str| tracks.iter().find(|t| t.eq_ignore_ascii_case(wanted)).cloned();
+        find(report_name).or_else(|| find(crate::aaf::strip_channel_suffix(report_name)))
+    };
     let mut unmatched: Vec<&str> = Vec::new();
+    let mut list: Vec<Value> = Vec::new();
     for plugin in &plugins {
-        if !names.contains(&plugin.track.to_lowercase()) && !unmatched.contains(&plugin.track.as_str()) {
+        let track = resolve(&plugin.track);
+        if track.is_none() && !unmatched.contains(&plugin.track.as_str()) {
             unmatched.push(&plugin.track);
         }
+        list.push(json!({"track": track.as_deref().unwrap_or(&plugin.track), "report_track": plugin.track, "name": plugin.name, "matched": track.is_some()}));
     }
-    let list: Vec<Value> =
-        plugins.iter().map(|p| json!({"track": p.track, "name": p.name, "matched": names.contains(&p.track.to_lowercase())})).collect();
     if !unmatched.is_empty() {
         let shown = unmatched.iter().take(10).copied().collect::<Vec<_>>().join(", ");
         import_warning(

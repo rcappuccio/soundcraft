@@ -601,7 +601,7 @@ fn parse_report_plugins(text: &str) -> Vec<ReportPlugin> {
 }
 
 /// `Vocal Rider (stereo)` → `Vocal Rider`; other parenthesised text is part of the name.
-fn strip_channel_suffix(name: &str) -> &str {
+pub(crate) fn strip_channel_suffix(name: &str) -> &str {
     let Some(open) = name.rfind('(').filter(|_| name.ends_with(')')) else { return name };
     let inner = name.get(open + 1..name.len().saturating_sub(1)).unwrap_or_default().trim().to_ascii_lowercase();
     let known = matches!(inner.as_str(), "mono" | "stereo" | "lcr" | "quad" | "lcrs" | "dual mono" | "mono/stereo" | "multi-mono");
@@ -2912,6 +2912,12 @@ mod tests {
         assert!(parse_report_plugins("").is_empty());
         assert!(parse_report_plugins("PLUG-INS: \tOrphan\n").is_empty());
         assert!(parse_report_plugins("TRACK NAME:\t\nPLUG-INS:\tX\n").is_empty());
+    }
+
+    #[test]
+    fn track_names_lose_the_report_channel_suffix() {
+        assert_eq!(strip_channel_suffix("Voice (Stereo)"), "Voice");
+        assert_eq!(strip_channel_suffix("Voice"), "Voice");
     }
 
     #[test]
