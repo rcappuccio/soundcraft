@@ -2572,6 +2572,19 @@ mod tests {
     }
 
     #[test]
+    fn listing_a_directory_over_the_limit_is_an_error() {
+        let dir = crate::test_scratch::root().join(format!("soundcraft-list-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in 0..3 {
+            std::fs::write(dir.join(format!("{n}.wav")), b"").unwrap();
+        }
+        assert_eq!(crate::io::list_dir(&dir, 3).unwrap().len(), 3);
+        assert!(crate::io::list_dir(&dir, 2).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn importing_a_folder_uses_the_aaf_inside_it() {
         let dir = crate::test_scratch::root().join(format!("soundcraft-aaf-folder-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
