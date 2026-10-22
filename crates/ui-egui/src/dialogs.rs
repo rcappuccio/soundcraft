@@ -222,6 +222,9 @@ fn open_pending_session(app: &mut SoundApp) {
 
 /// A path prompt for any command whose parameters start with a required `path` or `dir` (plus
 /// Print Score, whose path is optional), with a default file name from the command.
+/// Shown above the folder field and as the title of the native folder picker.
+pub const AAF_FOLDER_HELP: &str = "Select the folder containing all the files exported from Pro Tools: the .AAF file, the .TXT report and the .WAV files.";
+
 pub fn takes_path(id: &str) -> bool {
     path_key(id).is_some()
 }
@@ -479,20 +482,25 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                     }
                 }
                 Dialog::PathPrompt { cmd, path, key, .. } => {
+                    if cmd == "file.import_aaf" {
+                        ui.set_max_width(420.0);
+                        ui.label(crate::i18n::t(AAF_FOLDER_HELP));
+                    }
                     ui.add(egui::TextEdit::singleline(path).desired_width(420.0));
                     if let Some(pick) = &app.services.pick_open
                         && cmd != "session.save_as"
                         && cmd != "session.save_copy"
                         && key != "dir"
+                        && cmd != "file.import_aaf"
                         && ui.button(crate::i18n::t("Browse…")).clicked()
                         && let Some(p) = pick(cmd, &[])
                     {
                         *path = p;
                     }
                     if let Some(pick) = &app.services.pick_folder
-                        && key == "dir"
+                        && (key == "dir" || cmd == "file.import_aaf")
                         && ui.button(crate::i18n::t("Browse…")).clicked()
-                        && let Some(p) = pick(path)
+                        && let Some(p) = pick(cmd, path)
                     {
                         *path = p;
                     }

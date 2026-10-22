@@ -164,6 +164,7 @@
 	bpm	bpm
 	Bring to Front	Porta in primo piano
 	Browse…	Sfoglia…
+	Select the folder containing all the files exported from Pro Tools: the .AAF file, the .TXT report and the .WAV files.	Seleziona la cartella che contiene tutti i file esportati da Pro Tools: il file .AAF, il report .TXT e i file .WAV.
 	Buffer size	Dimensione buffer
 	Built-in	Integrato
 	Bus	Bus

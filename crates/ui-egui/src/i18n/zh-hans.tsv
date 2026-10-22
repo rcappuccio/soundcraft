@@ -550,6 +550,7 @@
 	Bit Depth	位深
 	Bounces the edit selection, or the whole session when nothing is selected.	导出编辑选区；未选择时导出整个会话。
 	Browse…	浏览…
+	Select the folder containing all the files exported from Pro Tools: the .AAF file, the .TXT report and the .WAV files.	请选择包含从 Pro Tools 导出的所有文件的文件夹：.AAF 文件、.TXT 报告和 .WAV 文件。
 	Buffer size	缓冲区大小
 	Built-in	内置
 	Bus	总线

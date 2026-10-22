@@ -187,8 +187,12 @@ fn services() -> Services {
             }
             d.save_file().map(|p| p.to_string_lossy().into_owned())
         })),
-        pick_folder: Some(Box::new(|start: &str| {
-            rfd::FileDialog::new().set_directory(start).pick_folder().map(|p| p.to_string_lossy().into_owned())
+        pick_folder: Some(Box::new(|purpose: &str, start: &str| {
+            let mut d = rfd::FileDialog::new().set_directory(start);
+            if purpose == "file.import_aaf" {
+                d = d.set_title(soundcraft_ui_egui::i18n::t(soundcraft_ui_egui::dialogs::AAF_FOLDER_HELP));
+            }
+            d.pick_folder().map(|p| p.to_string_lossy().into_owned())
         })),
     }
 }

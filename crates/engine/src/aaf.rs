@@ -299,12 +299,29 @@ struct DirectoryEntry {
     size: u64,
 }
 
+fn find_aaf_in(dir: &Path) -> Result<PathBuf> {
+    let entries = crate::io::list_dir(dir, MAX_AAF_COLLECTION_ENTRIES)?;
+    let mut found = entries.into_iter().filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("aaf")));
+    match (found.next(), found.next()) {
+        (Some(only), None) => Ok(only),
+        (None, _) => Err(EngineError::Unsupported(format!("no .aaf file found in `{}`", dir.display()))),
+        _ => Err(EngineError::Unsupported(format!("more than one .aaf file in `{}`; choose the file itself", dir.display()))),
+    }
+}
+
 /// Replace the current document with an imported audio AAF composition.
 ///
 /// The parser is run only after a conservative CFB preflight. The whole
 /// document is assembled off-engine so malformed input cannot leave a partial
 /// session behind.
 pub fn import(engine: &mut Engine, input: &Path, media_dir: Option<&Path>) -> Result<AafImportReport> {
+    // A folder (the usual Pro Tools export) stands for the single AAF inside it, with its WAVs beside it.
+    let (input, media_dir) = if crate::file_access::check_read(input).is_ok() && input.is_dir() {
+        (find_aaf_in(input)?, media_dir.or(Some(input)))
+    } else {
+        (input.to_path_buf(), media_dir)
+    };
+    let input = input.as_path();
     // Pro Tools exports keep the WAV files next to the AAF: that folder is the default media location.
     let media_dir = media_dir.or_else(|| Some(input.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))));
     let model = read_aaf(input)?;
@@ -2535,6 +2552,38 @@ mod tests {
             (PID_ROOT_HEADER, SF_STRONG_OBJECT_REFERENCE, utf16le("Header")),
         ]);
         write_aaf_fixture(path, vec![fx_stream("properties", root_props), metadictionary, header]);
+    }
+
+    #[test]
+    fn the_import_command_saves_the_session_in_the_chosen_folder() {
+        let dir = crate::test_scratch::root().join(format!("soundcraft-aaf-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        synthetic_aaf(&dir.join("session.aaf"));
+        let mut engine = Engine::default();
+        let res = engine.execute("file.import_aaf", &json!({"path": dir.to_string_lossy()})).unwrap();
+        let saved = std::path::PathBuf::from(res["saved_to"].as_str().unwrap());
+        assert_eq!(saved.parent(), Some(dir.as_path()));
+        assert!(saved.is_file());
+        assert_eq!(engine.path.as_deref(), saved.to_str());
+        let again = engine.execute("file.import_aaf", &json!({"path": dir.to_string_lossy()})).unwrap();
+        assert_ne!(again["saved_to"], res["saved_to"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn importing_a_folder_uses_the_aaf_inside_it() {
+        let dir = crate::test_scratch::root().join(format!("soundcraft-aaf-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(import(&mut Engine::default(), &dir, None).is_err());
+        synthetic_aaf(&dir.join("session.aaf"));
+        let mut engine = Engine::default();
+        assert_eq!(import(&mut engine, &dir, None).unwrap().clips, 1);
+        assert!(engine.path.is_none());
+        synthetic_aaf(&dir.join("other.AAF"));
+        assert!(import(&mut engine, &dir, None).is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

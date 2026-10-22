@@ -63,10 +63,32 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             import_audio
         ),
-        cmd!(noundo "file.import_aaf", "AAF...", ["File", "Import"], None, "{path, media_dir? (default: the AAF's folder)} — imports audio timeline tracks and WAV references exposed by the AAF reader; no PTX decoding", always, |e, p| {
+        cmd!(noundo "file.import_aaf", "AAF...", ["File", "Import"], None, "{path (the .aaf file, or a folder containing exactly one), media_dir? (default: the AAF's folder)} — imports audio timeline tracks and WAV references exposed by the AAF reader; no PTX decoding; given a folder, also saves the session there as <name>.scraft", always, |e, p| {
             let path = str_param(p, "path").ok_or_else(|| bad("file.import_aaf", "`path` required"))?;
             let media_dir = str_param(p, "media_dir").map(std::path::Path::new);
-            crate::aaf::import(e, std::path::Path::new(path), media_dir).map(|report| report.json())
+            let input = std::path::Path::new(path);
+            let report = crate::aaf::import(e, input, media_dir)?;
+            let mut result = report.json();
+            // Importing a Pro Tools export folder also saves the session in that folder.
+            if crate::file_access::check_read(input).is_ok() && input.is_dir() {
+                let stem = crate::io::sanitize_name(&report.composition);
+                let ext = soundcraft_model::SESSION_EXTENSION;
+                let file = (1..)
+                    .map(|n| if n == 1 { format!("{stem}.{ext}") } else { format!("{stem} {n}.{ext}") })
+                    .map(|name| input.join(name))
+                    .find(|f| !f.exists())
+                    .expect("an unbounded range has a free name");
+                let file = file.to_string_lossy().into_owned();
+                match crate::io::save_session(e, &file) {
+                    Ok(_) => result["saved_to"] = json!(file),
+                    Err(err) => {
+                        let note = format!("the imported session could not be saved in `{}`: {err}", input.display());
+                        e.message(note.clone());
+                        result["warnings"].as_array_mut().map(|w| w.push(json!(note)));
+                    }
+                }
+            }
+            Ok(result)
         }),
         cmd!("file.import_midi", "MIDI...", ["File", "Import"], Some("Cmd+Alt+I"), "{path, at?}", always, |e, p| {
             let path = str_param(p, "path").ok_or_else(|| bad("file.import_midi", "`path` required"))?.to_string();
