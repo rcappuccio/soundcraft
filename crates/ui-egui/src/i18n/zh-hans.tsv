@@ -1144,3 +1144,11 @@ automation	trim	微调
 	vca	VCA
 	folder	文件夹
 	video	视频
+	These AAX plug-ins were used in the Pro Tools session. Choose a VST3 or CLAP plug-in to put in their place on the same tracks; only the plug-in names carry over, so the new plug-ins start with their default settings.	这些 AAX 插件曾在 Pro Tools 会话中使用。请选择 VST3 或 CLAP 插件，在相同轨道上取代它们；仅插件名称会被保留，因此新插件使用默认设置。
+	AAX (origin)	AAX（源）
+	VST3 / CLAP (destination)	VST3 / CLAP（目标）
+	No VST3 or CLAP plug-ins were found.	未找到 VST3 或 CLAP 插件。
+	Skip	跳过
+	Replace AAX Plug-ins	替换 AAX 插件
+	Apply Plug-in Map	应用插件映射
+	List AAX Plug-ins in Export	列出导出中的 AAX 插件

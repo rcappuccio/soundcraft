@@ -70,7 +70,29 @@ reporting the compatibility issue.
 
 The session report is not applied to the session. The importer prints the lines that mention the
 sample rate, bit depth, timecode, track names, mute state, or plug-ins as notes: review them and
-migrate those settings manually.
+migrate those settings manually. The one exception is the plug-in names (below).
+
+## Replacing AAX plug-ins
+
+When the export folder contains the session report, the `PLUG-INS:` line of each `TRACK NAME:`
+block names the AAX plug-ins on that track. When you confirm Import Session, and before anything is imported, SoundCraft shows a table with
+the AAX plug-ins on the left (`AAX (origin)`) and, on each row, a list of every scanned VST3 and
+CLAP plug-in (`VST3 / CLAP (destination)`). A plug-in with the same or a very similar name is
+pre-selected. **OK** imports the session and inserts each chosen plug-in on every track that used the AAX plug-in
+(`plugin_map` parameter of `file.import_aaf`; `file.apply_plugin_map` does the same on an open session, as one undo step); **Skip** imports without them. Programmatic
+callers read `plugins: [{track, name}]` from `file.import_aaf_plugins` (before importing) or `[{track, name, matched}]` from `file.import_aaf`, and pass `plugin_map: [{aax, plugin}]` or call the command
+themselves.
+
+Only the plug-in **names** transfer. The report has no settings, presets or bypass state, so each
+replacement starts at its defaults. Tracks are matched by name; plug-ins listed for tracks that
+were not imported are reported as a warning and left out of the table.
+
+Assumptions, based on the sample exports we have (to be verified with more of them): the plug-ins
+of a track are separated by tabs on the `PLUG-INS:` line (an indented line right below continues
+it); the order is the insert order, so replacements are inserted in report order into the first
+free slots; the report does not say whether an insert is pre- or post-fader; a trailing channel
+suffix such as `(mono)` or `(stereo)` is not part of the name. Plug-ins are applied in table
+order, so tracks that use the same plug-ins in different orders may not keep each order exactly.
 
 ## What needs manual migration
 
