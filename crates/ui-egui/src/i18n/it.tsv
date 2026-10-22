@@ -1132,5 +1132,5 @@ automation	write	write
 	No VST3 or CLAP plug-ins were found.	Non è stato trovato nessun plug-in VST3 o CLAP.
 	Skip	Salta
 	Replace AAX Plug-ins	Sostituisci i plug-in AAX
-	Inserted {done} plug-in(s); {failed} could not be placed.	Inseriti {done} plug-in; {failed} non è stato possibile inserirli.
 	Apply Plug-in Map	Applica mappa plug-in
+	List AAX Plug-ins in Export	Elenca i plug-in AAX dell'esportazione

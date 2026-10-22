@@ -1150,5 +1150,5 @@ automation	trim	微调
 	No VST3 or CLAP plug-ins were found.	未找到 VST3 或 CLAP 插件。
 	Skip	跳过
 	Replace AAX Plug-ins	替换 AAX 插件
-	Inserted {done} plug-in(s); {failed} could not be placed.	已插入 {done} 个插件；{failed} 个无法放置。
 	Apply Plug-in Map	应用插件映射
+	List AAX Plug-ins in Export	列出导出中的 AAX 插件

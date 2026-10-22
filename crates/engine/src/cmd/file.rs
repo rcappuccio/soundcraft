@@ -63,7 +63,16 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             import_audio
         ),
-        cmd!(noundo "file.import_aaf", "Import Session...", ["File", "Import"], None, "{path (the .aaf file, or a Pro Tools export folder containing exactly one), media_dir? (default: the AAF's folder), midi? (.mid; found in the folder by default), session_report? (.txt; found in the folder by default), save_in_folder?: false, companions?: true (look for the .mid and .txt in a folder)} — imports audio timeline tracks and WAV references exposed by the AAF reader, then the MIDI file and session-report notes; no PTX decoding; with save_in_folder and a folder, also saves the session there as <name>.scraft", always, import_session),
+        cmd!(
+            query "file.import_aaf_plugins",
+            "List AAX Plug-ins in Export",
+            [],
+            None,
+            "{path (the same folder or .aaf as file.import_aaf), session_report?} → {plugins: [{track, name}]} — the plug-ins the Pro Tools session report lists, read before importing so they can be mapped; empty when there is no single .txt report",
+            always,
+            import_plugins
+        ),
+        cmd!(noundo "file.import_aaf", "Import Session...", ["File", "Import"], None, "{path (the .aaf file, or a Pro Tools export folder containing exactly one), media_dir? (default: the AAF's folder), midi? (.mid; found in the folder by default), session_report? (.txt; found in the folder by default), save_in_folder?: false, companions?: true (look for the .mid and .txt in a folder)} — imports audio timeline tracks and WAV references exposed by the AAF reader, then the MIDI file and session-report notes; no PTX decoding; plugin_map?: [{aax, plugin: id | null}] inserts the chosen VST3/CLAP plug-in (at defaults) on every imported track the report lists the AAX plug-in on; with save_in_folder and a folder, also saves the session there as <name>.scraft", always, import_session),
         cmd!("file.import_midi", "MIDI...", ["File", "Import"], Some("Cmd+Alt+I"), "{path, at?}", always, |e, p| {
             let path = str_param(p, "path").ok_or_else(|| bad("file.import_midi", "`path` required"))?.to_string();
             let at = position_param(e, "file.import_midi", p, "at")?.unwrap_or(0);
@@ -362,9 +371,28 @@ fn companion_file(e: &mut Engine, result: &mut Value, dir: &std::path::Path, ext
     }
 }
 
+/// The report's plug-ins for the folder or `.aaf` in `path`, before anything is imported.
+fn import_plugins(e: &mut Engine, p: &Value) -> Result<Value> {
+    let path = str_param(p, "path").ok_or_else(|| bad("file.import_aaf_plugins", "`path` required"))?;
+    let input = std::path::Path::new(path);
+    let report = match str_param(p, "session_report") {
+        Some(report) => Some(report.to_string()),
+        None if crate::io::is_readable_dir(input) => {
+            let mut ignored = json!({"warnings": []});
+            companion_file(e, &mut ignored, input, &["txt"])
+        }
+        None => None,
+    };
+    let plugins = match report {
+        Some(report) => crate::aaf::session_report_plugins(std::path::Path::new(&report)).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    Ok(json!({"plugins": plugins.iter().map(|p| json!({"track": p.track, "name": p.name})).collect::<Vec<_>>()}))
+}
+
 /// Adds `plugins: [{track, name, matched}]` from the report's `PLUG-INS` lines. A track is
 /// matched to an imported one by name (case-insensitive); the rest are warned about.
-fn report_plugins(e: &mut Engine, result: &mut Value, report: &str) {
+fn report_plugins(e: &mut Engine, result: &mut Value, report: &str, map: &[Value]) {
     let plugins = match crate::aaf::session_report_plugins(std::path::Path::new(report)) {
         Ok(plugins) => plugins,
         Err(err) => return import_warning(e, result, format!("the plug-ins in `{report}` could not be read: {err}")),
@@ -391,6 +419,38 @@ fn report_plugins(e: &mut Engine, result: &mut Value, report: &str) {
             result,
             format!("plug-ins listed for tracks that were not imported ({shown}{})", if unmatched.len() > 10 { ", …" } else { "" }),
         );
+    }
+    let applied: Vec<Value> = map
+        .iter()
+        .filter_map(|m| {
+            let aax = m["aax"].as_str()?;
+            let tracks: Vec<&str> = list
+                .iter()
+                .filter(|l| l["matched"] == true && l["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(aax)))
+                .filter_map(|l| l["track"].as_str())
+                .collect();
+            Some(json!({"aax": aax, "plugin": m["plugin"], "tracks": tracks}))
+        })
+        .collect();
+    if !applied.is_empty() {
+        match super::plugin_map::apply(e, &json!({"map": applied})) {
+            Ok(done) => {
+                for f in done["failed"].as_array().into_iter().flatten() {
+                    import_warning(
+                        e,
+                        result,
+                        format!(
+                            "{} on `{}`: {}",
+                            f["aax"].as_str().unwrap_or_default(),
+                            f["track"].as_str().unwrap_or_default(),
+                            f["error"].as_str().unwrap_or_default()
+                        ),
+                    );
+                }
+                result["plugin_map"] = done;
+            }
+            Err(err) => import_warning(e, result, format!("the plug-in map could not be applied: {err}")),
+        }
     }
     if !list.is_empty() {
         result["plugins"] = json!(list);
@@ -421,6 +481,7 @@ fn import_session(e: &mut Engine, p: &Value) -> Result<Value> {
         }
     }
 
+    let plugin_map: Vec<Value> = p.get("plugin_map").and_then(Value::as_array).cloned().unwrap_or_default();
     let explicit_report = str_param(p, "session_report").map(str::to_string);
     let session_report = match explicit_report.clone() {
         Some(report) => Some(report),
@@ -431,7 +492,7 @@ fn import_session(e: &mut Engine, p: &Value) -> Result<Value> {
         match crate::aaf::session_report_notes(std::path::Path::new(&session_report)) {
             Ok(notes) => {
                 result["notes"] = json!(notes);
-                report_plugins(e, &mut result, &session_report);
+                report_plugins(e, &mut result, &session_report, &plugin_map);
             }
             Err(err) if explicit_report.is_some() => return Err(bad("file.import_aaf", format!("session_report {session_report}: {err}"))),
             Err(err) => import_warning(e, &mut result, format!("the session report `{session_report}` could not be read: {err}")),

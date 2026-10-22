@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
 const MAX_MAP_ENTRIES: usize = 2_000;
 const MAX_TRACKS_PER_ENTRY: usize = 256;
 
-fn apply(e: &mut Engine, p: &Value) -> Result<Value> {
+pub(super) fn apply(e: &mut Engine, p: &Value) -> Result<Value> {
     const CMD: &str = "file.apply_plugin_map";
     let map = p.get("map").and_then(Value::as_array).ok_or_else(|| bad(CMD, "`map` required"))?;
     if map.len() > MAX_MAP_ENTRIES {

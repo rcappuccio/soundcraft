@@ -75,12 +75,12 @@ migrate those settings manually. The one exception is the plug-in names (below).
 ## Replacing AAX plug-ins
 
 When the export folder contains the session report, the `PLUG-INS:` line of each `TRACK NAME:`
-block names the AAX plug-ins on that track. After Import Session, SoundCraft shows a table with
+block names the AAX plug-ins on that track. When you confirm Import Session, and before anything is imported, SoundCraft shows a table with
 the AAX plug-ins on the left (`AAX (origin)`) and, on each row, a list of every scanned VST3 and
 CLAP plug-in (`VST3 / CLAP (destination)`). A plug-in with the same or a very similar name is
-pre-selected. **OK** inserts each chosen plug-in on every track that used the AAX plug-in
-(`file.apply_plugin_map`, one undo step); **Skip** leaves the session as imported. Programmatic
-callers read `plugins: [{track, name, matched}]` from `file.import_aaf` and call the command
+pre-selected. **OK** imports the session and inserts each chosen plug-in on every track that used the AAX plug-in
+(`plugin_map` parameter of `file.import_aaf`; `file.apply_plugin_map` does the same on an open session, as one undo step); **Skip** imports without them. Programmatic
+callers read `plugins: [{track, name}]` from `file.import_aaf_plugins` (before importing) or `[{track, name, matched}]` from `file.import_aaf`, and pass `plugin_map: [{aax, plugin}]` or call the command
 themselves.
 
 Only the plug-in **names** transfer. The report has no settings, presets or bypass state, so each
