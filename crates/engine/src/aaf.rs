@@ -558,12 +558,9 @@ fn media_sample_rate(media_dir: Option<&Path>) -> Result<Option<SampleRate>> {
     let Some(media_dir) = media_dir else {
         return Ok(None);
     };
-    crate::file_access::check_read(media_dir).map_err(EngineError::Unsupported)?;
-    let entries = std::fs::read_dir(media_dir)
+    let entries = crate::io::list_dir(media_dir, MAX_AAF_COLLECTION_ENTRIES)
         .map_err(|err| EngineError::Unsupported(format!("cannot list AAF media directory `{}`: {err}", media_dir.display())))?;
-    for entry in entries.take(MAX_AAF_COLLECTION_ENTRIES) {
-        let entry = entry.map_err(|err| EngineError::Unsupported(format!("cannot read an AAF media directory entry: {err}")))?;
-        let path = entry.path();
+    for path in entries {
         let is_wav = path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("wav"));
         if !is_wav {
             continue;

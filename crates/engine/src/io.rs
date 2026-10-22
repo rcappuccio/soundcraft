@@ -53,6 +53,18 @@ pub fn read_text(path: impl AsRef<Path>) -> Result<String> {
     String::from_utf8(read_file(path)?).map_err(|err| EngineError::Io(format!("{}: {err}", path.display())))
 }
 
+/// The entries of directory `path` (at most `max`), after the same read-root check as [`read_file`].
+pub fn list_dir(path: impl AsRef<Path>, max: usize) -> Result<Vec<std::path::PathBuf>> {
+    let path = path.as_ref();
+    crate::file_access::check_read(path).map_err(EngineError::Io)?;
+    let err = |err: std::io::Error| EngineError::Io(format!("{}: {err}", path.display()));
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(path).map_err(err)?.take(max) {
+        out.push(entry.map_err(err)?.path());
+    }
+    Ok(out)
+}
+
 /// Is there a file at `path` the automation read root lets us see? A path outside the root is
 /// reported as not found, so a command can't probe for files beyond it.
 pub fn file_found(path: impl AsRef<Path>) -> bool {
