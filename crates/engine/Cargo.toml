@@ -24,11 +24,9 @@ thiserror.workspace = true
 log.workspace = true
 zip.workspace = true
 craft-docpath.workspace = true
-oximedia-aaf = "0.2.1"
 
 [dev-dependencies]
 proptest.workspace = true
-uuid = { version = "1", features = ["v4"] }
 
 [lints]
 workspace = true
