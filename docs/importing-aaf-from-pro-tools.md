@@ -5,18 +5,21 @@ and does not load AAX plug-ins or their proprietary state.
 
 ## Export from Pro Tools
 
-Create a new empty folder for the export. Keep every output from this process together.
+Create a new empty folder for the export. **All files must sit at the same level in that one
+folder**: the `.aaf`, the `.mid`, the `.txt` report and every WAV file. Do not leave the WAV files
+in a subfolder such as `Converted Audio Files`; if Pro Tools created one, move the WAV files out of
+it into the export folder.
 
 1. Export the session as **AAF**, choosing external audio rather than an embedded-media-only
    workflow when that choice is available. Put the converted audio files in the export folder.
 2. Export MIDI as a Standard MIDI File (`.mid`).
 3. Export a session report as text (`.txt`). This records the sample rate, bit depth, timecode,
    track names, clip names, mute state, and plug-in listing for migration reference.
-4. Confirm the export folder contains the `.aaf`, `.mid`, `.txt`, and its `Converted Audio Files`
-   directory containing WAV files.
+4. Confirm the export folder contains the `.aaf`, `.mid`, `.txt` and the WAV files, all directly
+   in it.
 
-Do not rename, move, or delete individual WAV files after creating the AAF. The AAF refers to its
-external media by name and location.
+Do not rename or delete individual WAV files after creating the AAF. The AAF refers to its
+external media by file name, and SoundCraft looks for each WAV in the AAF's own folder.
 
 ## Import in SoundCraft
 
@@ -24,10 +27,12 @@ Use the command-line importer with all files from the same export:
 
 ```text
 soundcraft-cli import-aaf "Song.aaf" "Song.scraft" ^
-  --media-dir "Converted Audio Files" ^
   --midi "Song.mid" ^
   --session-report "Song.txt"
 ```
+
+WAV files are found automatically in the folder that contains the AAF. `--media-dir DIR` is only
+an override for a different folder; the supported layout is everything in one folder.
 
 The importer creates a `.soundcraft` session and writes its managed audio into the destination
 session's `Audio Files` directory. Keep the original export until you have checked the imported

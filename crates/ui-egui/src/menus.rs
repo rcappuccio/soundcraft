@@ -214,6 +214,15 @@ pub fn tree() -> Vec<MenuNode> {
     if let Some(clip) = roots.iter_mut().find(|n| n.label == "Clip") {
         clip.children.rotate_right(1);
     }
+    // The AAF importer is ours (Pro Tools has no such item); it sits right after MIDI.
+    insert_path(&mut roots, "File > Import > AAF...");
+    if let Some(import) = roots.iter_mut().find(|n| n.label == "File").and_then(|f| f.children.iter_mut().find(|n| n.label == "Import"))
+        && let Some(from) = import.children.iter().position(|n| n.label == "AAF...")
+    {
+        let node = import.children.remove(from);
+        let at = import.children.iter().position(|n| n.label == "MIDI...").map_or(import.children.len(), |i| i + 1);
+        import.children.insert(at, node);
+    }
     for (path, _) in MENU_WINDOWS {
         insert_path(&mut roots, path);
     }
@@ -754,6 +763,20 @@ mod tests {
         app.dialogs.open = None;
         invoke_menu(&mut app, "ui.bounce_dialog", "File > Bounce Mix...");
         assert_eq!(app.dialogs.open_name(), Some("bounce"));
+    }
+
+    #[test]
+    fn import_menu_lists_aaf_after_midi_and_asks_for_the_file() {
+        let roots = tree();
+        let import = roots.iter().find(|n| n.label == "File").and_then(|f| f.children.iter().find(|n| n.label == "Import")).unwrap();
+        let labels: Vec<&str> = import.children.iter().map(|n| n.label.as_str()).collect();
+        let midi = labels.iter().position(|l| *l == "MIDI...").unwrap();
+        assert_eq!(labels.get(midi + 1), Some(&"AAF..."));
+        assert_eq!(command_for_path("File > Import > AAF...", &ui_aliases()).as_deref(), Some("file.import_aaf"));
+
+        let mut app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
+        invoke_menu(&mut app, "file.import_aaf", "File > Import > AAF...");
+        assert!(matches!(&app.dialogs.open, Some(crate::dialogs::Dialog::PathPrompt { cmd, .. }) if cmd == "file.import_aaf"));
     }
 
     #[test]

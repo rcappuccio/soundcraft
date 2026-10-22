@@ -5,8 +5,10 @@
 //! soundcraft-cli convert IN OUT [--bit-depth 16|24|32f] [--rate HZ] [--normalize]
 //! soundcraft-cli import-aaf INPUT.aaf OUTPUT.scraft [--media-dir DIR] [--midi PATH] [--session-report PATH]
 //!                                                 imports an AAF timeline (audio tracks, clip placement,
-//!                                                 external WAV references); `--media-dir` links WAV files
-//!                                                 by name, `--midi` adds a Standard MIDI File's tempo map
+//!                                                 external WAV references). WAV files are linked by
+//!                                                 name from the AAF's own folder (keep the AAF, WAVs,
+//!                                                 MIDI and report together); `--media-dir` overrides it,
+//!                                                 `--midi` adds a Standard MIDI File's tempo map
 //!                                                 and tracks, `--session-report` surfaces migration notes
 //!                                                 from a plain-text session report. No PTX is read.
 //! soundcraft-cli run [--in S.scraft | --demo] [--cmd ID[=JSON]]… [--bounce OUT] [--start T --end T] [--save S.scraft] [--inspect]

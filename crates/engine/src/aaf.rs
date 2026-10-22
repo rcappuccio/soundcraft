@@ -305,6 +305,8 @@ struct DirectoryEntry {
 /// document is assembled off-engine so malformed input cannot leave a partial
 /// session behind.
 pub fn import(engine: &mut Engine, input: &Path, media_dir: Option<&Path>) -> Result<AafImportReport> {
+    // Pro Tools exports keep the WAV files next to the AAF: that folder is the default media location.
+    let media_dir = media_dir.or_else(|| Some(input.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))));
     let model = read_aaf(input)?;
     let mut compositions = model.compositions;
     if compositions.is_empty() {
@@ -908,9 +910,13 @@ fn offline_source_warning(source_name: &str, media_dir: Option<&Path>) -> String
             format!("AAF source `{}` is not named as a WAV file, so it was kept offline", label(source_name))
         }
         Some(dir) => {
-            format!("AAF WAV `{}` was not found under `{}`; its clip reference was kept offline", label(source_name), label(&dir.to_string_lossy()))
+            format!(
+                "AAF WAV `{}` was not found in `{}`; keep the WAV files in the same folder as the AAF. Its clip reference was kept offline",
+                label(source_name),
+                label(&dir.to_string_lossy())
+            )
         }
-        None => format!("AAF source `{}` was kept offline; pass `--media-dir` containing its exact WAV filename to link it", label(source_name)),
+        None => format!("AAF source `{}` was kept offline; keep its exact WAV filename in the same folder as the AAF to link it", label(source_name)),
     }
 }
 
@@ -2557,6 +2563,24 @@ mod tests {
         assert_eq!(clip.length, 48_000);
         assert_eq!(engine.session().sources.first().map(|source| source.unsaved), Some(false));
 
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn links_wav_files_found_next_to_the_aaf_by_default() {
+        let dir = crate::test_scratch::root().join(format!("soundcraft-aaf-same-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("timing.aaf");
+        synthetic_aaf(&path);
+        let audio = soundcraft_audio_io::AudioBuffer { sample_rate: 48_000, channels: vec![vec![0.0; 48_000]] };
+        let wav = soundcraft_audio_io::encode(&audio, &soundcraft_audio_io::EncodeOptions::default()).unwrap();
+        std::fs::write(dir.join("take.wav"), wav).unwrap();
+
+        let mut engine = Engine::default();
+        let report = import(&mut engine, &path, None).unwrap();
+
+        assert_eq!(report.linked_wav_files, 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 
